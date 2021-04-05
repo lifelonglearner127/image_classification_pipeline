@@ -49,29 +49,47 @@ def load_network(network):
 
 
 def build_dataset(image_size):
+    """
+    This function is used for building dataset. It consist of many steps
+    
+    """
     utils.CustomLog.print_info_log(
         message=f"Building dataset...",
         step=PipeLineStep.BUILDING_DATASET.name
     )
 
+    # Step 1: Get the traing data and their labels
+    # Get the list of images that will be used for training the model
     train_paths = list(paths.list_images(config.TRAINING_IMAGES_PATH))
+
+    # The traiing images should be organized like this, TRAINING_IMAGES_PATH/<label_name>/*.jpg(png or other image formats)
+    # In case of my demo dataset, ../dogs/*.jpg, ../cats/*.jpg
     train_labels = [p.split(os.path.sep)[-2].split(".")[0] for p in train_paths]
     total_count = len(train_paths)
 
+    # Step 2
     le = LabelEncoder()
     train_labels = le.fit_transform(train_labels)
 
+    # Step 3: Dataset split
+    # 80% - training dataset
+    # 10% - validation dataset
+    # 10% - test dataset
+    # We use 10% of dataset as test dataset
     split = train_test_split(train_paths, train_labels,
                              test_size=int(total_count * 0.1),
                              stratify=train_labels, random_state=42)
     (train_paths, test_paths, train_labels, test_labels) = split
 
+    # We use 10% of dataset as test dataset
     split = train_test_split(train_paths, train_labels,
                              test_size=int(total_count * 0.1),
                              stratify=train_labels, random_state=42)
     (train_paths, val_paths, train_labels, val_labels) = split
 
+    # Setp 4: Build the dataset
     aap = utils.AspectAwarePreProcessor(image_size, image_size)
+
     datasets = [
         ("train", train_paths, train_labels, config.TRAIN_HDF5),
         ("val", val_paths, val_labels, config.VAL_HDF5),
@@ -95,17 +113,20 @@ def build_dataset(image_size):
                 continue
             force = True
 
+        # Create hdf5 writer
         writer = utils.HDF5DatasetWriter(
             dims=(len(image_paths), image_size, image_size, 3),
             output_path=output_path,
             force=force,
         )
 
+        # show progress bar
         widgets = ["Building Dataset: ", progressbar.Percentage(), " ",
                    progressbar.Bar(), " ", progressbar.ETA()]
         pbar = progressbar.ProgressBar(maxval=len(image_paths), widgets=widgets)
         pbar.start()
 
+        # Resize the images and save the raw pixels to the hdf5 file
         for (i, (image_path, label)) in enumerate(zip(image_paths, labels)):
             image = cv2.imread(image_path)
             image = aap.preprocess(image)
@@ -127,6 +148,7 @@ def build_dataset(image_size):
         step=PipeLineStep.BUILDING_DATASET.name
     )
 
+    # Calculate the Red, Green and Blue pixel intensities across all images in the traing dataset.
     g_r = int(g_r / total_count)
     g_g = int(g_g / total_count)
     g_b = int(g_b / total_count)
@@ -142,8 +164,12 @@ def train(network_class, image_size, means):
         message=f"Start training...",
         step=PipeLineStep.TRANING_DATASET.name,
     )
+    # means is the mean of R, G, B pixel intensities accross all images in the traing dataset as you kno.
+    # We are going to perform a pixel-wise subtraction of these values from our input images as a form of data normalization
     mp = utils.MeanPreProcessor(means["R"], means["G"], means["B"])
     iap = utils.ImageToArrayPreProcessor()
+
+    # Prepare image agument technology as a regularization method
     aug = ImageDataGenerator(
         rotation_range=20,
         zoom_range=0.15,
@@ -153,6 +179,7 @@ def train(network_class, image_size, means):
         horizontal_flip=True,
         fill_mode="nearest"
     )
+    # HDF5DatasetGenerator is responisble for yielding batches of images and labels from our HDF5 dataset
     train_generator = utils.HDF5DatasetGenerator(
         db_path=config.TRAIN_HDF5,
         batch_size=config.BATCH_SIZE,
@@ -167,12 +194,14 @@ def train(network_class, image_size, means):
         classes=config.CLASS_NUMS,
     )
 
+    # Load the base model which is pre-trained on imagenet dataest
     base_model = network_class(
         include_top=False,
         weights='imagenet',
         input_shape=(image_size, image_size, 3)
     )
 
+    # Add our custom layer on top of our base model
     head_model = base_model.output
     head_model = Dense(256, activation="relu")(head_model)
     head_model = GlobalAveragePooling2D()(head_model)
@@ -180,9 +209,11 @@ def train(network_class, image_size, means):
     predictions = Dense(config.CLASS_NUMS, activation='softmax')(head_model)
     model = Model(inputs=base_model.input, outputs=predictions)
 
+    # Make base model trainable either
     for layer in base_model.layers:
         layer.trainable = False
 
+    # Choose Adam as optimizer
     opt = Adam(lr=1e-3)
     model.compile(
         loss="categorical_crossentropy",
@@ -190,9 +221,11 @@ def train(network_class, image_size, means):
         metrics=["accuracy"]
     )
 
+    # Track the traing status using graph
     path = os.path.sep.join([config.OUTPUT_PATH, "{}.png".format(os.getpid())])
     callbacks = [utils.TrainingMonitor(path)]
 
+    # start the training
     model.fit(
         train_generator.generator(),
         steps_per_epoch=train_generator.num_images // config.BATCH_SIZE,
