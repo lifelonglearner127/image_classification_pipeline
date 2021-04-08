@@ -26,8 +26,37 @@ class CustomLog:
         print(f"[{step}] - [{level}]: {message}")
 
 
+"""
+HDF5 is binary data format created by the HDF5 group to store gigantic numerical datasets on
+disk (far too large to store in memory) while facilitating easy access and computation on the rows of
+the datasets. Data in HDF5 is stored hierarchically, similar to how a file system stores data. Data is
+first defined in groups, where a group is a container-like structure which can hold datasets and other
+groups. Once a group has been defined, a dataset can be created within the group. A dataset can be
+thought of as a multi-dimensional array (i.e., a NumPy array) of a homogeneous data type (integer,
+float, unicode, etc.)
+HDF5 is written in C; however, by using the h5py module (h5py.org), we can gain access to
+the underlying C API using the Python programming language. What makes h5py so awesome
+is the ease of interaction with data. We can store huge amounts of data in our HDF5 dataset and
+manipulate the data in a NumPy-like fashion. For example, we can use standard Python syntax to
+access and slice rows from multi-terabyte datasets stored on disk as if they were simple NumPy
+arrays loaded into memory. Thanks to specialized data structures, these slices and row accesses are
+lighting quick. When using HDF5 with h5py, you can think of your data as a gigantic NumPy array
+that is too large to fit into main memory but can still be accessed and manipulated just the same.
+Perhaps best of all, the HDF5 format is standardized, meaning that datasets stored in HDF5
+format are inherently portable and can be accessed by other developers using different programming
+languages such as C, MATLAB, and Java.
+
+This will allow us to generate HDF5 datasets from raw images to facilitate faster training.
+"""
 class HDF5DatasetWriter:
     def __init__(self, dims, output_path, force=False, data_key="images", buf_size=1000):
+        """HDF5DatasetWriter Constructor
+        Key Arguments:
+        dims: dimension or shape of the data we will be storing in the dataset.
+        output_path: path to where our output HDF5 file will be stored
+        data_key: name of the dataset
+        buf_size: size of our in-memory buffer
+        """
         if os.path.exists(output_path) and force:
             os.remove(output_path)
 
@@ -42,6 +71,8 @@ class HDF5DatasetWriter:
         self.idx = 0
 
     def add(self, rows, labels):
+        # We leaverage buffer/flush workflow, which means we store the data in buffer(memory)
+        # once the bufer is full, we write the buffer to file data
         self.buffer["data"].extend(rows)
         self.buffer["labels"].extend(labels)
 
@@ -49,6 +80,7 @@ class HDF5DatasetWriter:
             self.flush()
 
     def flush(self):
+        # write the data to hdf5 file
         i = self.idx + len(self.buffer["data"])
         self.data[self.idx:i] = self.buffer["data"]
         self.labels[self.idx:i] = self.buffer["labels"]
@@ -121,6 +153,11 @@ class HDF5DatasetGenerator:
 
 
 class AspectAwarePreProcessor:
+    """
+    For basic benchmark datasets, resizing images without maintaining aspect so is acceptable.
+    However, for more challenging datasets we should still seek to resize to a fixed size, but
+    maintain the aspect ratio. This is a common technique
+    """
     def __init__(self, width, height, interpolation=cv2.INTER_AREA):
         self.width = width
         self.height = height
