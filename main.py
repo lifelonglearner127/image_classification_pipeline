@@ -181,7 +181,7 @@ def train(network_class, image_size, means):
     model = Model(inputs=base_model.input, outputs=predictions)
 
     for layer in base_model.layers:
-        layer.trainable = False
+        layer.trainable = True
 
     opt = Adam(lr=1e-3)
     model.compile(
